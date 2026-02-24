@@ -1,0 +1,41 @@
+{
+  "enabled": true,
+  "timezone": "Europe/London",
+
+  "schedule": {
+    "weekday": {
+      "days": [1, 2, 3, 4, 5],
+      "windows": [{"start": "08:00", "end": "18:00"}],
+      "daily_limit_minutes": 240
+    },
+    "saturday": {
+      "days": [6],
+      "windows": [
+        {"start": "08:00", "end": "10:30"},
+        {"start": "16:00", "end": "19:00"}
+      ],
+      "daily_limit_minutes": 240
+    }
+  },
+
+  "extensions": {
+    "quick": {
+      "minutes": 15,
+      "max_per_day": 2,
+      "label": "Quick 15-min session"
+    },
+    "more": {
+      "minutes": 15,
+      "max_per_day": 3,
+      "label": "15 more minutes"
+    }
+  },
+
+  "override": {
+    "env_var": "BALANCE_OVERRIDE",
+    "file": "~/.balance_override"
+  },
+
+  "warning_minutes_before_end": 15,
+  "warning_minutes_before_cap": 30
+}

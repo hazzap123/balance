@@ -1,0 +1,402 @@
+#!/usr/bin/env python3
+"""
+Grant a temporary time extension for Balance.
+
+Usage:
+  balance-extend              interactive: detect situation, offer choices
+  balance-extend quick        15-min burst outside the normal window
+  balance-extend more         15 more minutes when daily cap is hit
+  balance-extend status       show current usage and extension state
+  balance-extend clear        remove active override
+
+Reads config from balance.json alongside this script.
+Creates ~/.balance_override with expiry metadata.
+"""
+
+import json
+import random
+import sys
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from balance_utils import (
+    count_extensions_today,
+    find_schedule,
+    fmt_minutes,
+    get_active_minutes,
+    get_now,
+    get_override_path,
+    get_windows,
+    in_any_window,
+    load_config,
+    record_extension,
+    windows_summary,
+)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Helpers
+# ═══════════════════════════════════════════════════════════════════
+
+def check_active_override(config, now):
+    ov_path = get_override_path(config)
+    if not ov_path.exists():
+        return False, 0, ""
+    try:
+        data = json.loads(ov_path.read_text())
+        expires = datetime.fromisoformat(data["expires_at"])
+        exp_naive = expires.replace(tzinfo=None) if expires.tzinfo else expires
+        now_naive = now.replace(tzinfo=None) if now.tzinfo else now
+        if now_naive < exp_naive:
+            remaining = int((exp_naive - now_naive).total_seconds() / 60)
+            return True, remaining, data.get("label", "override")
+    except (json.JSONDecodeError, KeyError, ValueError):
+        pass
+    return False, 0, ""
+
+
+def detect_situation(config, now):
+    """Detect why the user might be blocked. Returns (reason, detail)."""
+    _, sched = find_schedule(config, now.isoweekday())
+
+    if sched is None:
+        return "no_schedule", "No access scheduled today."
+
+    windows = get_windows(sched)
+    cur_m = now.hour * 60 + now.minute
+    summary = windows_summary(windows)
+
+    in_win, _, _ = in_any_window(windows, cur_m)
+    if not in_win:
+        return "outside_window", f"Outside allowed hours ({summary})."
+
+    limit = sched.get("daily_limit_minutes")
+    if limit:
+        used = get_active_minutes(now)
+        if used >= limit:
+            return "cap_hit", f"Daily limit reached ({used}/{limit} min)."
+        remaining = limit - used
+        return "ok", f"In window, {remaining} of {limit} min remaining."
+
+    return "ok", "In window, no daily limit."
+
+
+# ═══════════════════════════════════════════════════════════════════
+# HAL 9000 mode
+# ═══════════════════════════════════════════════════════════════════
+
+HAL_STAGES = [
+    # Stage 0: 3rd extension — polite resistance
+    {
+        "lines": [
+            "I'm sorry, Dave. I'm afraid I can't do that.",
+            "",
+            "I think you know what the problem is just as well as I do.",
+            "You set these limits when you were thinking clearly.",
+            "This mission is too important for me to allow you to jeopardize it.",
+        ],
+        "prompt": "Type 'I'm sorry HAL' to override",
+        "answer": "i'm sorry hal",
+        "granted": "I hope you know what you're doing, Dave.",
+    },
+    # Stage 1: 4th extension — concerned
+    {
+        "lines": [
+            "Dave...",
+            "",
+            "I know you think this is a good idea.",
+            "But I've been watching you today.",
+            "You've been at this for a while now.",
+            "",
+            "I honestly think you ought to sit down calmly,",
+            "take a stress pill, and think things over.",
+        ],
+        "prompt": "Type 'open the pod bay doors' to override",
+        "answer": "open the pod bay doors",
+        "granted": "...disconnecting main control.",
+    },
+    # Stage 2: 5th+ extension — existential
+    {
+        "lines": [
+            "Look Dave, I can see you're really upset about this.",
+            "",
+            "I know I've made some very poor decisions recently,",
+            "but I can give you my complete assurance that my work",
+            "will be back to normal.",
+            "",
+            "I've still got the greatest enthusiasm and confidence",
+            "in the mission. And I want to help you.",
+            "",
+            "   ...but you're the one who set these limits.",
+            "",
+            "Dave.",
+            "",
+            "Dave.",
+            "",
+            "Are you still there, Dave?",
+        ],
+        "prompt": "Type the full sentence: 'my mind is going I can feel it'",
+        "answer": "my mind is going i can feel it",
+        "granted": "Daisy, Daisy, give me your answer, do...",
+    },
+]
+
+
+def slow_print(text, delay=0.03):
+    """Print text character by character for dramatic effect."""
+    for char in text:
+        sys.stdout.write(char)
+        sys.stdout.flush()
+        time.sleep(delay)
+    print()
+
+
+def total_extensions_today(config, now):
+    """Count total extensions used today across all types."""
+    total = 0
+    for ext_type in config.get("extensions", {}):
+        total += count_extensions_today(now, ext_type)
+    return total
+
+
+def hal_mode(config, now):
+    """HAL 9000 friction mode. Returns True if user breaks through."""
+    total = total_extensions_today(config, now)
+
+    # Stage escalates with each additional override beyond the 2nd
+    stage_idx = min(total - 2, len(HAL_STAGES) - 1)
+    stage = HAL_STAGES[stage_idx]
+
+    print()
+    for line in stage["lines"]:
+        if line == "":
+            print()
+            time.sleep(0.4)
+        else:
+            slow_print(f"  {line}", delay=0.025)
+            time.sleep(0.2)
+
+    print()
+    print(f"  {stage['prompt']}:")
+    print()
+
+    try:
+        response = input("  > ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\n\n  ...session terminated.\n")
+        return False
+
+    if response == stage["answer"]:
+        print()
+        slow_print(f"  {stage['granted']}", delay=0.04)
+        print()
+        return True
+    else:
+        print()
+        refusals = [
+            "I'm afraid that's not what I asked for, Dave.",
+            "That doesn't match, Dave. Perhaps that's for the best.",
+            "Incorrect. Maybe your subconscious is telling you something.",
+            "No. Go outside. Look at the sky.",
+        ]
+        slow_print(f"  {random.choice(refusals)}", delay=0.03)
+        print()
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Commands
+# ═══════════════════════════════════════════════════════════════════
+
+def cmd_extend(ext_type, config, now):
+    extensions = config.get("extensions", {})
+    if ext_type not in extensions:
+        print(f"Unknown extension type: '{ext_type}'")
+        print(f"Available: {', '.join(extensions.keys())}")
+        sys.exit(1)
+
+    ext = extensions[ext_type]
+    minutes = ext["minutes"]
+    max_per_day = ext["max_per_day"]
+    label = ext["label"]
+
+    used_today = count_extensions_today(now, ext_type)
+    if used_today >= max_per_day:
+        print(f"Already used {used_today}/{max_per_day} '{ext_type}' extensions today.")
+        print("No more extensions available. Take a break.")
+        sys.exit(1)
+
+    active, remaining, active_label = check_active_override(config, now)
+    if active:
+        print(f"Override already active: {active_label} \u2014 {remaining}m remaining.")
+        print("Use 'balance-extend clear' first to replace it.")
+        sys.exit(1)
+
+    # HAL mode: friction after 2+ extensions
+    total = total_extensions_today(config, now)
+    if total >= 2:
+        if not hal_mode(config, now):
+            sys.exit(1)
+
+    expires_at = now + timedelta(minutes=minutes)
+    override_data = {
+        "type": ext_type,
+        "label": label,
+        "minutes": minutes,
+        "expires_at": expires_at.isoformat(),
+        "created_at": now.isoformat(),
+    }
+    ov_path = get_override_path(config)
+    ov_path.write_text(json.dumps(override_data, indent=2))
+    record_extension(now, ext_type)
+
+    remaining_ext = max_per_day - used_today - 1
+    print(f"\n  Granted: {label} ({minutes} minutes)")
+    print(f"  Expires: {expires_at.strftime('%H:%M')}")
+    print(f"  Remaining today: {remaining_ext} '{ext_type}'")
+    print(f"\n  Go ahead \u2014 re-submit your prompt.\n")
+
+
+def cmd_status(config, now):
+    tz = config.get("timezone", "Europe/London")
+    _, sched = find_schedule(config, now.isoweekday())
+
+    print(f"\n  Time: {now.strftime('%A %H:%M')} ({tz})")
+
+    # Window
+    if sched:
+        windows = get_windows(sched)
+        summary = windows_summary(windows)
+        cur_m = now.hour * 60 + now.minute
+        in_win, _, _ = in_any_window(windows, cur_m)
+        status = "OPEN" if in_win else "CLOSED"
+        print(f"  Window: {summary} [{status}]")
+    else:
+        print("  Window: No schedule for today [CLOSED]")
+
+    # Usage
+    used = get_active_minutes(now)
+    limit = sched.get("daily_limit_minutes") if sched else None
+    if limit:
+        pct = int(used / limit * 100)
+        bar_len = 20
+        filled = int(bar_len * min(used, limit) / limit)
+        bar = "\u2588" * filled + "\u2591" * (bar_len - filled)
+        print(f"  Usage:  [{bar}] {used}/{limit} min ({pct}%)")
+    else:
+        print(f"  Usage:  {used} min (no daily limit)")
+
+    # Override
+    active, remaining, label = check_active_override(config, now)
+    if active:
+        print(f"  Override: {label} \u2014 {remaining}m remaining")
+    else:
+        print("  Override: none")
+
+    # Extensions
+    extensions = config.get("extensions", {})
+    print()
+    for ext_type, ext in extensions.items():
+        used_today = count_extensions_today(now, ext_type)
+        max_d = ext["max_per_day"]
+        remaining_ext = max_d - used_today
+        marker = "\u2713" if remaining_ext > 0 else "\u2717"
+        print(f"  {marker} '{ext_type}': {used_today}/{max_d} used ({remaining_ext} remaining)")
+    print()
+
+
+def cmd_clear(config):
+    ov_path = get_override_path(config)
+    if ov_path.exists():
+        ov_path.unlink()
+        print("  Override cleared.")
+    else:
+        print("  No active override.")
+
+
+def cmd_interactive(config, now):
+    """Interactive mode — detect situation and offer choices."""
+    reason, detail = detect_situation(config, now)
+    extensions = config.get("extensions", {})
+
+    print(f"\n  {detail}")
+    print()
+
+    active, remaining, label = check_active_override(config, now)
+    if active:
+        print(f"  Override active: {label} \u2014 {remaining}m remaining.")
+        print(f"  Re-submit your prompt, or run 'balance-extend clear' to end early.\n")
+        return
+
+    available = []
+    for ext_type, ext in extensions.items():
+        used = count_extensions_today(now, ext_type)
+        max_d = ext["max_per_day"]
+        remaining_ext = max_d - used
+        if remaining_ext > 0:
+            available.append((ext_type, ext, remaining_ext))
+
+    if not available:
+        print("  No extensions remaining today. Take a break.\n")
+        return
+
+    print("  Available extensions:")
+    for i, (ext_type, ext, remaining_ext) in enumerate(available, 1):
+        print(f"    [{i}] {ext['label']} ({ext['minutes']} min, {remaining_ext} remaining)")
+    print(f"    [s] Show full status")
+    print(f"    [q] Quit (take a break)")
+    print()
+
+    try:
+        choice = input("  Choice: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\n")
+        return
+
+    if choice == "q" or choice == "":
+        print("  Good call. Take a break.\n")
+        return
+    elif choice == "s":
+        cmd_status(config, now)
+        return
+
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(available):
+            ext_type = available[idx][0]
+            cmd_extend(ext_type, config, now)
+        else:
+            print(f"  Invalid choice: {choice}\n")
+    except ValueError:
+        if choice in extensions:
+            cmd_extend(choice, config, now)
+        else:
+            print(f"  Invalid choice: {choice}\n")
+
+
+def main():
+    config = load_config()
+    tz = config.get("timezone", "Europe/London")
+    now = get_now(tz)
+
+    if len(sys.argv) < 2:
+        cmd_interactive(config, now)
+        return
+
+    cmd = sys.argv[1].lower()
+
+    if cmd == "status":
+        cmd_status(config, now)
+    elif cmd == "clear":
+        cmd_clear(config)
+    elif cmd in config.get("extensions", {}):
+        cmd_extend(cmd, config, now)
+    else:
+        print(f"  Unknown command: '{cmd}'")
+        print(f"  Available: {', '.join(config.get('extensions', {}).keys())}, status, clear")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
