@@ -138,7 +138,7 @@ For emergencies, full bypass via:
 - Environment variable: `BALANCE_OVERRIDE=1`
 - Override file: `~/.balance_override` (managed by `balance-extend`)
 
-## Locked Out?
+## Locked Out? DON'T PANIC!!!
 
 **Option 1 — Use a balance command.** `/balance-extend`, `/balance-configure`, and `/balance-status` are always allowed through even when blocked. Type one directly in Claude Code.
 
