@@ -141,42 +141,48 @@ def main():
     except Exception:
         pass
 
-    config = load_config()
+    try:
+        config = load_config()
 
-    if not config.get("enabled", True):
-        sys.exit(0)
+        if not config.get("enabled", True):
+            sys.exit(0)
 
-    now = get_now(config.get("timezone", "Europe/London"))
+        now = get_now(config.get("timezone", "Europe/London"))
 
-    # Periodic cleanup (once per day, tracked by marker file)
-    maybe_cleanup(now)
+        # Periodic cleanup (once per day, tracked by marker file)
+        maybe_cleanup(now)
 
-    # ── Override check (full bypass) ──
-    override_active, override_info = check_override(config, now)
-    if override_active:
+        # ── Override check (full bypass) ──
+        override_active, override_info = check_override(config, now)
+        if override_active:
+            record_prompt(now)
+            print(json.dumps({"additionalContext": f"Time override active: {override_info}"}))
+            sys.exit(0)
+
+        # ── Window check ──
+        in_window, sched_name, sched, active_end_m, window_msg = check_window(config, now)
+        if not in_window:
+            print(window_msg, file=sys.stderr)
+            sys.exit(2)
+
+        # ── Daily cap check ──
+        cap_ok, used, limit, cap_msg = check_daily_cap(config, sched, now)
+        if not cap_ok:
+            print(cap_msg, file=sys.stderr)
+            sys.exit(2)
+
+        # ── Allowed — record usage and check for warnings ──
         record_prompt(now)
-        print(json.dumps({"additionalContext": f"Time override active: {override_info}"}))
+        warnings = build_warnings(config, now, active_end_m, used, limit)
+        if warnings:
+            print(json.dumps({"additionalContext": " | ".join(warnings)}))
+
         sys.exit(0)
 
-    # ── Window check ──
-    in_window, sched_name, sched, active_end_m, window_msg = check_window(config, now)
-    if not in_window:
-        print(window_msg, file=sys.stderr)
+    except Exception as e:
+        # Fail closed: unexpected errors block rather than allow
+        print(f"Balance error (blocking): {e}", file=sys.stderr)
         sys.exit(2)
-
-    # ── Daily cap check ──
-    cap_ok, used, limit, cap_msg = check_daily_cap(config, sched, now)
-    if not cap_ok:
-        print(cap_msg, file=sys.stderr)
-        sys.exit(2)
-
-    # ── Allowed — record usage and check for warnings ──
-    record_prompt(now)
-    warnings = build_warnings(config, now, active_end_m, used, limit)
-    if warnings:
-        print(json.dumps({"additionalContext": " | ".join(warnings)}))
-
-    sys.exit(0)
 
 
 if __name__ == "__main__":

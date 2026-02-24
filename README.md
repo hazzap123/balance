@@ -15,42 +15,47 @@ Claude Code is powerful. Too powerful to leave running at 2am when you should be
 
 ## Quick Start
 
-### 1. Clone into your hooks directory
+### 1. Clone the repo
 
 ```bash
-git clone https://github.com/hazzap123/balance.git /tmp/balance-install
-
-# Copy to your Claude Code hooks directory
-cp /tmp/balance-install/balance_hook.py ~/.claude/hooks/
-cp /tmp/balance-install/balance_utils.py ~/.claude/hooks/
-cp /tmp/balance-install/balance-extend ~/.claude/hooks/
-cp /tmp/balance-install/balance.json.example ~/.claude/hooks/balance.json
+git clone https://github.com/hazzap123/balance.git ~/github/balance
 ```
 
-### 2. Install slash commands (optional)
+### 2. Run the setup wizard
 
-Copy the commands to your Claude Code commands directory:
+Inside Claude Code:
+
+```
+/balance-setup
+```
+
+This checks what's installed, copies missing files, registers the hook in `settings.json`, and creates a starter `balance.json`. Handles first-time install and re-installs.
+
+**Or install manually:**
+
+```bash
+cp ~/github/balance/balance_hook.py ~/.claude/hooks/
+cp ~/github/balance/balance_utils.py ~/.claude/hooks/
+cp ~/github/balance/balance-extend ~/.claude/hooks/
+cp ~/github/balance/balance.json.example ~/.claude/hooks/balance.json
+chmod +x ~/.claude/hooks/balance-extend
+```
+
+### 3. Install slash commands (optional)
 
 ```bash
 cp ~/github/balance/commands/*.md ~/.claude/commands/
 ```
 
-This gives you three slash commands usable inside Claude Code:
-
-| Command | Purpose |
-|---------|---------|
-| `/balance-setup` | First-time install wizard |
-| `/balance-configure` | Modify your schedule interactively |
-| `/balance-status` | Check today's usage, window, and extensions |
-
-### 3. Make the CLI accessible
+### 4. Make the CLI accessible (optional)
 
 ```bash
 ln -s ~/.claude/hooks/balance-extend ~/bin/balance-extend
-chmod +x ~/.claude/hooks/balance-extend
 ```
 
-### 4. Configure the hook in Claude Code settings
+Only needed if you want to run `balance-extend` from a terminal. Skip if you only use it from the block message inside Claude Code.
+
+### 5. Configure the hook in Claude Code settings
 
 Add to your `.claude/settings.json`:
 
@@ -67,7 +72,7 @@ Add to your `.claude/settings.json`:
 }
 ```
 
-### 5. Customise your schedule
+### 6. Customise your schedule
 
 Edit `~/.claude/hooks/balance.json`:
 
@@ -107,23 +112,17 @@ Usage logs are stored in `.usage/` alongside the hook and auto-cleaned after 7 d
 
 ### Extensions
 
-When blocked, you're offered extension options:
+When blocked, you're offered extension options directly in the Claude Code block message. You can also run them from a terminal if `balance-extend` is on your PATH.
 
-```
-balance-extend              # Interactive chooser
-balance-extend quick        # 15-min burst outside the normal window
-balance-extend more         # 15 more minutes when daily cap is hit
-balance-extend status       # Show current usage and extension state
-balance-extend clear        # Remove active override
-```
+See [Commands Reference](#commands-reference) for the full list.
 
 ### HAL 9000 Mode
 
-After your 2nd extension in a day, HAL 9000 starts resisting. Each additional extension escalates:
+From your 2nd extension onwards, HAL 9000 starts resisting. Each additional extension escalates:
 
-- **Stage 0** (3rd extension): *"I'm sorry, Dave. I'm afraid I can't do that."* — Type `I'm sorry HAL` to override
-- **Stage 1** (4th extension): *"I honestly think you ought to sit down calmly, take a stress pill..."* — Type `open the pod bay doors`
-- **Stage 2** (5th+ extension): *"Look Dave, I can see you're really upset..."* — Type `my mind is going I can feel it`
+- **Stage 0** (2nd extension): *"I'm sorry, Dave. I'm afraid I can't do that."* — Type `I'm sorry HAL` to override
+- **Stage 1** (3rd extension): *"I honestly think you ought to sit down calmly, take a stress pill..."* — Type `open the pod bay doors`
+- **Stage 2** (4th+ extension): *"Look Dave, I can see you're really upset..."* — Type `my mind is going I can feel it`
 
 It's not about preventing access. It's about making you pause and think about whether you really need more time.
 
@@ -138,6 +137,30 @@ Approaching limits trigger context warnings (shown to Claude, not blocking):
 For emergencies, full bypass via:
 - Environment variable: `BALANCE_OVERRIDE=1`
 - Override file: `~/.balance_override` (managed by `balance-extend`)
+
+## Commands Reference
+
+### Slash commands (inside Claude Code)
+
+| Command | What it does |
+|---------|-------------|
+| `/balance-setup` | First-time install wizard — checks what's installed, copies files, registers the hook in `settings.json`, creates starter `balance.json`. Safe to re-run. |
+| `/balance-configure` | Show active config in plain English, then apply changes interactively — time windows, daily limits, timezone, extensions. |
+| `/balance-status` | Show today's usage, current window state, extensions used, and any active override. |
+
+### CLI (`balance-extend`)
+
+Available from a terminal (if symlinked to PATH) or triggered from the block message inside Claude Code.
+
+| Command | What it does |
+|---------|-------------|
+| `balance-extend` | Interactive mode — detects why you're blocked, lists available extensions, lets you choose. |
+| `balance-extend quick` | Grant a short burst outside your normal window (configurable, default 15 min). |
+| `balance-extend more` | Add time when your daily cap is hit (configurable, default 15 min). |
+| `balance-extend status` | Show current time, window state, usage bar, and extension counts. |
+| `balance-extend clear` | Remove the active override immediately. |
+
+Extension types (`quick`, `more`) are defined in `balance.json` and can be renamed, resized, or extended with additional types.
 
 ## Configuration Reference
 

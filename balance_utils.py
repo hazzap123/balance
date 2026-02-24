@@ -4,6 +4,7 @@ Shared utilities for Balance — time and usage management for Claude Code.
 Used by both balance_hook.py (the hook) and balance-extend (the CLI).
 """
 
+import fcntl
 import json
 import os
 import time
@@ -50,7 +51,7 @@ def load_config():
             cfg["extensions"] = {**DEFAULT_CONFIG["extensions"], **uc.get("extensions", {})}
             cfg["override"] = {**DEFAULT_CONFIG["override"], **uc.get("override", {})}
             return cfg
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, OSError):
             pass
     return DEFAULT_CONFIG.copy()
 
@@ -80,9 +81,17 @@ def get_now(timezone_name):
 
 
 def parse_time(t):
-    """Parse 'HH:MM' to minutes since midnight."""
-    parts = t.split(":")
-    return int(parts[0]) * 60 + int(parts[1])
+    """Parse 'HH:MM' to minutes since midnight. Raises ValueError on bad input."""
+    try:
+        parts = t.split(":")
+        if len(parts) != 2:
+            raise ValueError(f"expected HH:MM, got {t!r}")
+        h, m = int(parts[0]), int(parts[1])
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError(f"time out of range: {t!r}")
+        return h * 60 + m
+    except (ValueError, AttributeError) as e:
+        raise ValueError(f"Invalid time {t!r}: {e}") from e
 
 
 def fmt_minutes(m):
@@ -257,14 +266,17 @@ def record_extension(now, ext_type):
     USAGE_DIR.mkdir(parents=True, exist_ok=True)
     date_str = now.strftime("%Y-%m-%d")
     log_path = USAGE_DIR / f"{date_str}.extensions.json"
-    data = {}
-    if log_path.exists():
-        try:
-            data = json.loads(log_path.read_text())
-        except (json.JSONDecodeError, OSError):
-            pass
-    data[ext_type] = data.get(ext_type, 0) + 1
-    log_path.write_text(json.dumps(data))
+    lock_path = log_path.with_suffix(".lock")
+    with open(lock_path, "w") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        data = {}
+        if log_path.exists():
+            try:
+                data = json.loads(log_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+        data[ext_type] = data.get(ext_type, 0) + 1
+        log_path.write_text(json.dumps(data))
 
 
 # ═══════════════════════════════════════════════════════════════════

@@ -233,9 +233,9 @@ def cmd_extend(ext_type, config, now):
         print("Use 'balance-extend clear' first to replace it.")
         sys.exit(1)
 
-    # HAL mode: friction after 2+ extensions
+    # HAL mode: friction from the 2nd extension onwards
     total = total_extensions_today(config, now)
-    if total >= 2:
+    if total >= 1:
         if not hal_mode(config, now):
             sys.exit(1)
 
