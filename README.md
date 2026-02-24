@@ -27,14 +27,30 @@ cp /tmp/balance-install/balance-extend ~/.claude/hooks/
 cp /tmp/balance-install/balance.json.example ~/.claude/hooks/balance.json
 ```
 
-### 2. Make the CLI accessible
+### 2. Install slash commands (optional)
+
+Copy the commands to your Claude Code commands directory:
+
+```bash
+cp ~/github/balance/commands/*.md ~/.claude/commands/
+```
+
+This gives you three slash commands usable inside Claude Code:
+
+| Command | Purpose |
+|---------|---------|
+| `/balance-setup` | First-time install wizard |
+| `/balance-configure` | Modify your schedule interactively |
+| `/balance-status` | Check today's usage, window, and extensions |
+
+### 3. Make the CLI accessible
 
 ```bash
 ln -s ~/.claude/hooks/balance-extend ~/bin/balance-extend
 chmod +x ~/.claude/hooks/balance-extend
 ```
 
-### 3. Configure the hook in Claude Code settings
+### 4. Configure the hook in Claude Code settings
 
 Add to your `.claude/settings.json`:
 
@@ -51,7 +67,7 @@ Add to your `.claude/settings.json`:
 }
 ```
 
-### 4. Customise your schedule
+### 5. Customise your schedule
 
 Edit `~/.claude/hooks/balance.json`:
 
