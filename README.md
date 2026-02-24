@@ -138,6 +138,26 @@ For emergencies, full bypass via:
 - Environment variable: `BALANCE_OVERRIDE=1`
 - Override file: `~/.balance_override` (managed by `balance-extend`)
 
+## Locked Out?
+
+**Option 1 — Use a balance command.** `/balance-extend`, `/balance-configure`, and `/balance-status` are always allowed through even when blocked. Type one directly in Claude Code.
+
+**Option 2 — Don't Panic mode.** If Claude Code is completely unreachable, run this from any terminal:
+
+```bash
+python3 -c "
+from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta
+import json
+tz = ZoneInfo('Europe/London')
+expires = datetime.now(tz) + timedelta(minutes=15)
+open('/Users/YOU/.balance_override', 'w').write(json.dumps({'expires_at': expires.strftime('%Y-%m-%dT%H:%M:%S')}))
+print('Unlocked until', expires.strftime('%H:%M'))
+"
+```
+
+Replace `/Users/YOU/` with your home directory. Grants 15 minutes. Adjust `timedelta(minutes=15)` as needed.
+
 ## Commands Reference
 
 ### Slash commands (inside Claude Code)
