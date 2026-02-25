@@ -140,14 +140,6 @@ def build_warnings(config, now, active_end_m, used_minutes, limit_minutes):
 
 def main():
     try:
-        raw = sys.stdin.read()
-        data = json.loads(raw)
-        if data.get("prompt", "").strip().startswith("/balance-"):
-            sys.exit(0)  # always allow balance commands through
-    except Exception:
-        pass
-
-    try:
         config = load_config()
 
         if not config.get("enabled", True):
