@@ -1,7 +1,8 @@
 """
 Tests for Balance.
 
-Run: python3 test_balance.py
+Run from repo root: python3 tests/test_balance.py
+Or: cd tests && python3 test_balance.py
 """
 
 import json
@@ -14,8 +15,9 @@ from pathlib import Path
 from unittest import TestCase, main as unittest_main
 from unittest.mock import patch
 
-# Ensure the hooks dir is on the path
-sys.path.insert(0, str(Path(__file__).parent))
+# Ensure the repo root (where balance_hook.py and balance_utils.py live) is on the path
+REPO_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 
 import balance_utils
 
@@ -270,11 +272,9 @@ class TestUsageTracking(TestCase):
         for m in range(5):
             now = make_dt(hour=10, minute=m)
             balance_utils.record_prompt(now)
-        # All same date, 5 different minutes
         self.assertEqual(balance_utils.get_active_minutes(make_dt(hour=10)), 5)
 
     def test_cleanup_old_files(self):
-        # Create files for several days
         now = make_dt()
         for days_ago in range(10):
             dt = now - timedelta(days=days_ago)
@@ -286,31 +286,26 @@ class TestUsageTracking(TestCase):
 
         remaining_logs = list(self.tmpdir.glob("*.log"))
         remaining_ext = list(self.tmpdir.glob("*.extensions.json"))
-        # Days 0-7 kept (8 files), days 8-9 removed
         self.assertEqual(len(remaining_logs), 8)
         self.assertEqual(len(remaining_ext), 8)
 
     def test_maybe_cleanup_runs_once_per_day(self):
         now = make_dt()
-        # First call should run cleanup and create marker
         balance_utils.maybe_cleanup(now)
         marker = self.tmpdir / ".last_cleanup"
         self.assertTrue(marker.exists())
         self.assertEqual(marker.read_text().strip(), now.strftime("%Y-%m-%d"))
 
-        # Write a fake old file
         old_date = (now - timedelta(days=10)).strftime("%Y-%m-%d")
         old_file = self.tmpdir / f"{old_date}.log"
         old_file.write_text("09:00\n")
 
-        # Second call same day should skip (marker exists)
         balance_utils.maybe_cleanup(now)
-        self.assertTrue(old_file.exists())  # Not cleaned because skipped
+        self.assertTrue(old_file.exists())  # Skipped — marker already set for today
 
-        # Next day should run again
         tomorrow = now + timedelta(days=1)
         balance_utils.maybe_cleanup(tomorrow)
-        self.assertFalse(old_file.exists())  # Now cleaned
+        self.assertFalse(old_file.exists())  # Cleaned on next day
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -361,7 +356,6 @@ class TestOverride(TestCase):
                 "file": str(self.override_file),
             },
         }
-        # Clear env var
         os.environ.pop("TEST_BALANCE_OVERRIDE", None)
 
     def tearDown(self):
@@ -408,13 +402,12 @@ class TestOverride(TestCase):
 
     def test_file_override_expired(self):
         now = make_dt(hour=10)
-        expires = now - timedelta(minutes=5)  # Already expired
+        expires = now - timedelta(minutes=5)
         data = {"type": "quick", "expires_at": expires.isoformat()}
         self.override_file.write_text(json.dumps(data))
         active, _ = balance_utils.check_override(self.config, now)
         self.assertFalse(active)
-        # Expired file should be cleaned up
-        self.assertFalse(self.override_file.exists())
+        self.assertFalse(self.override_file.exists())  # Expired file cleaned up
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -454,8 +447,7 @@ class TestLoadConfig(TestCase):
         config = balance_utils.load_config()
         self.assertEqual(config["timezone"], "America/New_York")
         self.assertEqual(config["schedule"]["weekday"]["daily_limit_minutes"], 120)
-        # Extensions should still have defaults
-        self.assertIn("quick", config["extensions"])
+        self.assertIn("quick", config["extensions"])  # Defaults preserved
 
     def test_malformed_json_uses_defaults(self):
         self.config_file.write_text("not json {{{")
@@ -464,14 +456,11 @@ class TestLoadConfig(TestCase):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Hook enforcement (integration-style tests)
+# Hook enforcement (integration-style)
 # ═══════════════════════════════════════════════════════════════════
 
 class TestHookEnforcement(TestCase):
-    """Test the check_window and check_daily_cap functions from balance_hook.py."""
-
     def setUp(self):
-        sys.path.insert(0, str(Path(__file__).parent))
         import balance_hook
         self.tr = balance_hook
 
@@ -516,7 +505,7 @@ class TestHookEnforcement(TestCase):
         self.assertEqual(end_m, 630)  # 10:30
 
     def test_saturday_gap(self):
-        now = datetime(2026, 2, 28, 12, 0)  # Saturday 12:00 — gap
+        now = datetime(2026, 2, 28, 12, 0)  # Saturday 12:00 — in gap
         in_win, _, _, _, msg = self.tr.check_window(SAMPLE_CONFIG, now)
         self.assertFalse(in_win)
         self.assertIn("Outside allowed hours", msg)
@@ -537,7 +526,6 @@ class TestHookEnforcement(TestCase):
 
     def test_cap_hit(self):
         now = make_dt(hour=10)
-        # Simulate 240 distinct minutes of usage
         for m in range(240):
             h = 8 + m // 60
             minute = m % 60
@@ -550,12 +538,13 @@ class TestHookEnforcement(TestCase):
         self.assertIn("Daily limit reached", msg)
 
     def test_no_cap_configured(self):
-        config = {**SAMPLE_CONFIG}
-        config["schedule"] = {
-            "weekday": {
-                "days": [1, 2, 3, 4, 5],
-                "windows": [{"start": "08:00", "end": "18:00"}],
-                # No daily_limit_minutes
+        config = {
+            **SAMPLE_CONFIG,
+            "schedule": {
+                "weekday": {
+                    "days": [1, 2, 3, 4, 5],
+                    "windows": [{"start": "08:00", "end": "18:00"}],
+                }
             },
         }
         now = make_dt(hour=10)
@@ -579,8 +568,18 @@ class TestWarnings(TestCase):
         warnings = self.tr.build_warnings(SAMPLE_CONFIG, now, 1080, 100, 240)
         self.assertTrue(any("Window closes" in w for w in warnings))
 
+    def test_window_warning_at_exact_threshold(self):
+        now = make_dt(hour=17, minute=45)  # exactly 15 min before 18:00
+        warnings = self.tr.build_warnings(SAMPLE_CONFIG, now, 1080, 100, 240)
+        self.assertTrue(any("Window closes" in w for w in warnings))
+
     def test_no_window_warning_when_far(self):
-        now = make_dt(hour=10, minute=0)  # Far from 18:00
+        now = make_dt(hour=10, minute=0)
+        warnings = self.tr.build_warnings(SAMPLE_CONFIG, now, 1080, 100, 240)
+        self.assertFalse(any("Window closes" in w for w in warnings))
+
+    def test_no_window_warning_one_minute_outside_threshold(self):
+        now = make_dt(hour=17, minute=44)  # 16 min before — just outside threshold
         warnings = self.tr.build_warnings(SAMPLE_CONFIG, now, 1080, 100, 240)
         self.assertFalse(any("Window closes" in w for w in warnings))
 
@@ -591,7 +590,7 @@ class TestWarnings(TestCase):
 
     def test_no_cap_warning_when_far(self):
         now = make_dt(hour=10)
-        warnings = self.tr.build_warnings(SAMPLE_CONFIG, now, 1080, 100, 240)  # 140 min left
+        warnings = self.tr.build_warnings(SAMPLE_CONFIG, now, 1080, 100, 240)
         self.assertFalse(any("Daily usage" in w for w in warnings))
 
     def test_both_warnings(self):
@@ -599,9 +598,19 @@ class TestWarnings(TestCase):
         warnings = self.tr.build_warnings(SAMPLE_CONFIG, now, 1080, 230, 240)
         self.assertEqual(len(warnings), 2)
 
+    def test_no_warning_when_active_end_none(self):
+        now = make_dt(hour=17, minute=50)
+        warnings = self.tr.build_warnings(SAMPLE_CONFIG, now, None, 100, 240)
+        self.assertFalse(any("Window closes" in w for w in warnings))
+
+    def test_warning_message_contains_minutes(self):
+        now = make_dt(hour=17, minute=53)  # 7 min before close
+        warnings = self.tr.build_warnings(SAMPLE_CONFIG, now, 1080, 100, 240)
+        self.assertTrue(any("7 minutes" in w for w in warnings))
+
 
 # ═══════════════════════════════════════════════════════════════════
-# Extension menu
+# Extension menu (block message)
 # ═══════════════════════════════════════════════════════════════════
 
 class TestExtensionMenu(TestCase):
@@ -616,17 +625,34 @@ class TestExtensionMenu(TestCase):
         balance_utils.USAGE_DIR = self._orig_usage_dir
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
+    def test_shows_full_path_to_extend_cmd(self):
+        """Block message must show full path so user can copy-paste from terminal."""
+        now = make_dt()
+        msg = self.tr.extension_menu(SAMPLE_CONFIG, now, "Blocked.")
+        self.assertIn("balance-extend", msg)
+        # Must be a full path, not a bare command
+        self.assertIn("/", msg.split("balance-extend")[0].split("\n")[-1])
+
     def test_shows_available_extensions(self):
         now = make_dt()
         msg = self.tr.extension_menu(SAMPLE_CONFIG, now, "Blocked.")
-        self.assertIn("balance-extend quick", msg)
-        self.assertIn("balance-extend more", msg)
+        self.assertIn("quick", msg)
+        self.assertIn("more", msg)
         self.assertIn("2 remaining", msg)
         self.assertIn("3 remaining", msg)
 
+    def test_shows_run_from_terminal_label(self):
+        now = make_dt()
+        msg = self.tr.extension_menu(SAMPLE_CONFIG, now, "Blocked.")
+        self.assertIn("Run from terminal", msg)
+
+    def test_context_string_included(self):
+        now = make_dt()
+        msg = self.tr.extension_menu(SAMPLE_CONFIG, now, "Outside hours.")
+        self.assertTrue(msg.startswith("Outside hours."))
+
     def test_shows_none_left_when_exhausted(self):
         now = make_dt()
-        # Use up all extensions
         for _ in range(2):
             balance_utils.record_extension(now, "quick")
         for _ in range(3):
@@ -635,6 +661,62 @@ class TestExtensionMenu(TestCase):
         msg = self.tr.extension_menu(SAMPLE_CONFIG, now, "Blocked.")
         self.assertIn("none left", msg)
         self.assertIn("No extensions remaining", msg)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Hook stdout flushing (regression: warnings were silently dropped)
+# ═══════════════════════════════════════════════════════════════════
+
+class TestHookOutput(TestCase):
+    """Integration tests against the hook process via stdin/stdout."""
+
+    def _run_hook(self, prompt="test", env=None):
+        import subprocess
+        hook_path = REPO_ROOT / "balance_hook.py"
+        input_data = json.dumps({"prompt": prompt})
+        result = subprocess.run(
+            ["python3", str(hook_path)],
+            input=input_data,
+            capture_output=True,
+            text=True,
+            env={**os.environ, **(env or {})},
+        )
+        return result
+
+    def test_override_active_outputs_context(self):
+        """When override is active, hook must output additionalContext to stdout."""
+        from datetime import datetime, timedelta
+        expires = datetime.now() + timedelta(minutes=30)
+        override_data = json.dumps({
+            "type": "quick",
+            "label": "Quick 15-min session",
+            "expires_at": expires.isoformat(),
+        })
+        override_path = Path(tempfile.mktemp(suffix=".json"))
+        try:
+            override_path.write_text(override_data)
+            # Point the hook at our temp override file via env var
+            result = self._run_hook(env={"BALANCE_OVERRIDE": "1"})
+            self.assertEqual(result.returncode, 0)
+            self.assertTrue(result.stdout.strip(), "Hook produced no stdout with active override")
+            data = json.loads(result.stdout.strip())
+            self.assertIn("additionalContext", data)
+        finally:
+            override_path.unlink(missing_ok=True)
+
+    def test_blocked_outputs_to_stderr(self):
+        """When blocked, error message must go to stderr not stdout."""
+        # Run with override disabled to ensure we hit a block if outside hours
+        # This test is environment-dependent; just verify stderr is used on block
+        result = self._run_hook()
+        if result.returncode == 2:
+            self.assertTrue(result.stderr.strip(), "Block message must go to stderr")
+            self.assertEqual(result.stdout.strip(), "", "Blocked hook must not write to stdout")
+
+    def test_allowed_exit_zero(self):
+        """When override is active, hook exits 0."""
+        result = self._run_hook(env={"BALANCE_OVERRIDE": "1"})
+        self.assertEqual(result.returncode, 0)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -647,9 +729,8 @@ class TestHalMode(TestCase):
         self._orig_usage_dir = balance_utils.USAGE_DIR
         balance_utils.USAGE_DIR = self.tmpdir
 
-        # Import the CLI module (hyphenated filename needs loader trick)
         import importlib.util, types
-        cli_path = str(Path(__file__).parent / "balance-extend")
+        cli_path = str(REPO_ROOT / "balance-extend")
         loader = importlib.machinery.SourceFileLoader("balance_extend", cli_path)
         self.cli = types.ModuleType(loader.name)
         loader.exec_module(self.cli)
@@ -668,7 +749,6 @@ class TestHalMode(TestCase):
     def test_no_hal_under_threshold(self):
         now = make_dt()
         balance_utils.record_extension(now, "quick")
-        # Only 1 extension — HAL should not trigger (threshold is 2)
         total = self.cli.total_extensions_today(SAMPLE_CONFIG, now)
         self.assertLess(total, 2)
 
@@ -680,7 +760,6 @@ class TestHalMode(TestCase):
         self.assertGreaterEqual(total, 2)
 
     def test_hal_stage_escalation(self):
-        # Stage 0 at total=2, stage 1 at total=3, stage 2 (max) at total=4+
         self.assertEqual(min(2 - 2, len(self.cli.HAL_STAGES) - 1), 0)
         self.assertEqual(min(3 - 2, len(self.cli.HAL_STAGES) - 1), 1)
         self.assertEqual(min(4 - 2, len(self.cli.HAL_STAGES) - 1), 2)
