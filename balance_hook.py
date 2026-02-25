@@ -37,6 +37,9 @@ from balance_utils import (
 # Extension menu (shown on block)
 # ═══════════════════════════════════════════════════════════════════
 
+EXTEND_CMD = str(Path(__file__).parent / "balance-extend")
+
+
 def extension_menu(config, now, context):
     """Build a block message with available extension options."""
     extensions = config.get("extensions", {})
@@ -47,18 +50,18 @@ def extension_menu(config, now, context):
         max_d = ext["max_per_day"]
         remaining = max_d - used
         if remaining > 0:
-            lines.append(f"  balance-extend {ext_type:<8} \u2014 {ext['label']} ({remaining} remaining)")
+            lines.append(f"  {EXTEND_CMD} {ext_type:<8} \u2014 {ext['label']} ({remaining} remaining)")
             available.append(ext_type)
         else:
-            lines.append(f"  balance-extend {ext_type:<8} \u2014 {ext['label']} (none left)")
+            lines.append(f"  {EXTEND_CMD} {ext_type:<8} \u2014 {ext['label']} (none left)")
 
     if available:
-        lines.append(f"  balance-extend          \u2014 interactive chooser")
+        lines.append(f"  {EXTEND_CMD}          \u2014 interactive chooser")
 
     if not available:
         lines.append("\n  No extensions remaining. Take a break.")
 
-    return "\n".join([context, "", "Extensions:"] + lines)
+    return "\n".join([context, "", "Run from terminal:"] + lines)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -160,6 +163,7 @@ def main():
         if override_active:
             record_prompt(now)
             print(json.dumps({"additionalContext": f"Time override active: {override_info}"}))
+            sys.stdout.flush()
             sys.exit(0)
 
         # ── Window check ──
@@ -179,6 +183,7 @@ def main():
         warnings = build_warnings(config, now, active_end_m, used, limit)
         if warnings:
             print(json.dumps({"additionalContext": " | ".join(warnings)}))
+            sys.stdout.flush()
 
         sys.exit(0)
 

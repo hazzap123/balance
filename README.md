@@ -140,23 +140,32 @@ For emergencies, full bypass via:
 
 ## Locked Out? DON'T PANIC!!!
 
-**Option 1 — Use a balance command.** `/balance-extend`, `/balance-configure`, and `/balance-status` are always allowed through even when blocked. Type one directly in Claude Code.
+**Option 1 — Use a slash command.** `/balance-configure` and `/balance-status` are always allowed through even when blocked. Type one directly in Claude Code.
 
-**Option 2 — Don't Panic mode.** If Claude Code is completely unreachable, run this from any terminal:
+**Option 2 — Run balance-extend from a terminal.** The block message shows the full path — copy and run it:
+
+```bash
+~/.claude/hooks/balance-extend quick
+# or interactive:
+~/.claude/hooks/balance-extend
+```
+
+**Option 3 — Don't Panic mode.** If everything is broken, run this from any terminal:
 
 ```bash
 python3 -c "
+import os, json
 from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta
-import json
 tz = ZoneInfo('Europe/London')
 expires = datetime.now(tz) + timedelta(minutes=15)
-open('/Users/YOU/.balance_override', 'w').write(json.dumps({'expires_at': expires.strftime('%Y-%m-%dT%H:%M:%S')}))
+path = os.path.expanduser('~/.balance_override')
+open(path, 'w').write(json.dumps({'expires_at': expires.strftime('%Y-%m-%dT%H:%M:%S')}))
 print('Unlocked until', expires.strftime('%H:%M'))
 "
 ```
 
-Replace `/Users/YOU/` with your home directory. Grants 15 minutes. Adjust `timedelta(minutes=15)` as needed.
+Grants 15 minutes. Adjust `timedelta(minutes=15)` as needed.
 
 ## Commands Reference
 
@@ -168,9 +177,11 @@ Replace `/Users/YOU/` with your home directory. Grants 15 minutes. Adjust `timed
 | `/balance-configure` | Show active config in plain English, then apply changes interactively — time windows, daily limits, timezone, extensions. |
 | `/balance-status` | Show today's usage, current window state, extensions used, and any active override. |
 
+These slash commands are always allowed through even when you're blocked.
+
 ### CLI (`balance-extend`)
 
-Available from a terminal (if symlinked to PATH) or triggered from the block message inside Claude Code.
+A terminal command — **not** a Claude Code slash command. Run it from a terminal when blocked. The block message shows the full path to copy-paste.
 
 | Command | What it does |
 |---------|-------------|
