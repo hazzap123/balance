@@ -14,6 +14,7 @@ Exit codes: 0 = allow, 2 = block (stderr shown to user)
 
 import json
 import sys
+from pathlib import Path
 
 from balance_utils import (
     check_override,
