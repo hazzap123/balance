@@ -8,6 +8,7 @@ Balance is a Claude Code hook that enforces:
 2. **Daily usage caps** — tracks active minutes, blocks when limit hit
 3. **Extensions** — temporary overrides when you need more time
 4. **HAL 9000 mode** — escalating friction when you keep extending (with 2001: A Space Odyssey quotes)
+5. **Status line** — at-a-glance usage, window, and warning display in the Claude Code terminal footer
 
 ## Why?
 
@@ -47,7 +48,28 @@ chmod +x ~/.claude/hooks/balance-extend
 cp ~/github/balance/commands/*.md ~/.claude/commands/
 ```
 
-### 4. Make the CLI accessible (optional)
+### 4. Install the status line (optional)
+
+```bash
+cp ~/github/balance/statusline.sh ~/.claude/statusline-command.sh
+chmod +x ~/.claude/statusline-command.sh
+```
+
+Add to your `.claude/settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline-command.sh",
+    "padding": 2
+  }
+}
+```
+
+This adds a live Balance readout to the bottom of your Claude Code terminal. See [Status Line](#status-line) for details.
+
+### 5. Make the CLI accessible (optional)
 
 ```bash
 ln -s ~/.claude/hooks/balance-extend ~/bin/balance-extend
@@ -55,7 +77,7 @@ ln -s ~/.claude/hooks/balance-extend ~/bin/balance-extend
 
 Only needed if you want to run `balance-extend` from a terminal. Skip if you only use it from the block message inside Claude Code.
 
-### 5. Configure the hook in Claude Code settings
+### 6. Configure the hook in Claude Code settings
 
 Add to your `.claude/settings.json`:
 
@@ -72,7 +94,7 @@ Add to your `.claude/settings.json`:
 }
 ```
 
-### 6. Customise your schedule
+### 7. Customise your schedule
 
 Edit `~/.claude/hooks/balance.json`:
 
@@ -137,6 +159,36 @@ Approaching limits trigger context warnings (shown to Claude, not blocking):
 For emergencies, full bypass via:
 - Environment variable: `BALANCE_OVERRIDE=1`
 - Override file: `~/.balance_override` (managed by `balance-extend`)
+
+## Status Line
+
+The optional status line script adds live Balance information to the Claude Code terminal footer. It shows model, context window, and Balance state side by side.
+
+### What it displays
+
+| State | Example |
+|-------|---------|
+| Normal (in window) | `Bal: 45/240m [08:00-18:00]` |
+| Approaching daily cap | `Bal: 215/240m [08:00-18:00]` `! 25m to cap` |
+| Cap reached | `Bal: 240/240m [08:00-18:00]` `!! CAP REACHED !!` |
+| Window ending soon | `Bal: 100/240m [08:00-18:00]` `! window ends in 12m` |
+| Extended session active | `Bal: 100/240m ext:1 [08:00-18:00]` `+Quick 15-min session (12m left)` |
+| Extended outside window | `Bal: 200/240m ext:2` `+Quick 15-min session (8m left)` |
+| Between windows | `Bal: 100/240m (next: 16:00)` |
+| After last window | `Bal: 200/240m (done for today)` |
+| No schedule (e.g. Sunday) | `Bal: no schedule today` |
+| Sunday with override | `Bal: 15m ext:1` `+Quick 15-min session (10m left)` |
+
+Warnings use colour: yellow for approaching limits, red for cap reached, cyan for active extensions, grey for inactive states.
+
+Warning thresholds are read from `balance.json` (`warning_minutes_before_end` and `warning_minutes_before_cap`).
+
+### Requirements
+
+- `jq` (for parsing JSON config and session metadata)
+- `bc` (for token count formatting)
+
+Both are standard on macOS and most Linux distributions.
 
 ## Locked Out? DON'T PANIC!!!
 
